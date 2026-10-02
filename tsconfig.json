@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "paths": {
+      "@artist-signatures/types": ["./packages/types/src/index.ts"],
+      "@artist-signatures/parser": ["./packages/parser/src/index.ts"],
+      "@artist-signatures/resolver": ["./packages/resolver/src/index.ts"],
+      "@artist-signatures/database": ["./packages/database/src/index.ts"],
+      "@artist-signatures/client": ["./packages/client/src/index.ts"]
+    }
+  },
+  "include": ["apps/**/*", "packages/**/*", "examples/**/*", "scripts/**/*"]
+}

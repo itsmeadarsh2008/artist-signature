@@ -1,0 +1,12 @@
+{
+  "name": "@artist-signatures/importer",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "dependencies": {
+    "@artist-signatures/database": "workspace:*",
+    "@artist-signatures/parser": "workspace:*",
+    "@artist-signatures/resolver": "workspace:*",
+    "drizzle-orm": "0.45.3"
+  }
+}
