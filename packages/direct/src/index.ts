@@ -200,7 +200,13 @@ export function classifyType(title: string, description: string, categories: str
 /** API-shaped signature as served by the REST API, the dataset transport, or findLiveRecords. */
 export interface ShapedSignature {
   id: string;
-  asset?: { url?: string | null; format?: string | null; type?: string | null } | null;
+  asset?: {
+    url?: string | null;
+    format?: string | null;
+    type?: string | null;
+    width?: number | null;
+    height?: number | null;
+  } | null;
   source?: { url?: string | null; original_url?: string | null } | null;
   license?: { name?: string | null; status?: string | null } | null;
   verification?: string | null;
@@ -222,6 +228,8 @@ export function pickBest(signatures: ShapedSignature[]): string | null {
         format: s.asset?.format ?? null,
         status: "available",
         verification: s.verification ?? null,
+        width: s.asset?.width ?? null,
+        height: s.asset?.height ?? null,
       },
       licenses: s.license ? [{ status: s.license.status ?? null }] : [],
       source: s.source

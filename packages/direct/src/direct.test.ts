@@ -76,6 +76,20 @@ describe("findLiveRecords (no database)", () => {
 
 
 describe("pickBest()", () => {
+  const dim = (id: string, format: string, w: number, h: number) => ({
+    id,
+    asset: { url: "https://cdn.example.com/x", format, type: "handwritten", width: w, height: h },
+    source: { provider: "wikimedia_commons", url: "https://commons.wikimedia.org/wiki/File:X", original_url: null },
+    license: { name: "Public Domain", status: "known" },
+    verification: "unverified",
+  });
+
+  test("forwards dimensions: wide panoramas outrank square canvases", async () => {
+    const { pickBest } = await import("./index");
+    // Real MJ numbers: square svg (623x613) vs wide png (330x70).
+    expect(pickBest([dim("sq", "svg", 623, 613), dim("wide", "png", 330, 70)])).toBe("wide");
+  });
+
   const rec = (id: string, format: string, status: string | null, verification: string) => ({
     id,
     asset: { url: "https://cdn.example.com/x", format, type: "handwritten" },
