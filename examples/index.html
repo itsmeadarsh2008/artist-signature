@@ -157,7 +157,7 @@
         <label for="mode">source</label>
         <select id="mode">
           <option value="api">API server</option>
-          <option value="direct">Direct — no server</option>
+          <option value="direct" selected>Direct — no server</option>
         </select>
         <label for="api">API</label>
         <input id="api" type="url" style="flex: 0 1 20rem" value="http://localhost:3499" />
@@ -403,8 +403,12 @@
       });
 
       const params = new URLSearchParams(location.search);
-      if (params.get("api")) $("api").value = params.get("api");
-      if (params.get("mode") === "direct") $("mode").value = "direct";
+      if (params.get("api")) {
+        // Pointing at a server implies API mode unless stated otherwise.
+        $("api").value = params.get("api");
+        if (params.get("mode") !== "direct") $("mode").value = "api";
+      }
+      if (params.get("mode") === "api") $("mode").value = "api";
       $("mode").addEventListener("change", () => {
         $("api").disabled = $("mode").value === "direct";
       });

@@ -20,12 +20,12 @@ Prerequisites: [Bun](https://bun.sh/) 1.x and [just](https://just.systems/)
 
 ```bash
 just install    # bun install
-just seed       # demo database (Ada Melody, Test Tones, Stub Star)
-just api        # API on http://localhost:3499 (blocking; Ctrl-C to stop)
-just web        # UI on http://localhost:5173 (second terminal)
+just web        # UI on http://localhost:5173 — Direct mode needs nothing else
 ```
 
-Open http://localhost:5173 and search. Or skip the UI:
+Open http://localhost:5173 and search. For API-backed lookups, also run
+`just api` (demo DB on :3499; `just seed` builds it) and switch the UI's
+source selector. Or skip the UI:
 
 ```bash
 curl "http://localhost:3499/v1/signatures?artist=Ada%20Melody"
