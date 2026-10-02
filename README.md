@@ -186,5 +186,22 @@ docker run --rm -p 3000:3000 \
 - The browser UI is static (`examples/index.html`) — host it anywhere and
   point it at the API via its API field or `?api=`. In Direct mode it needs
   no API at all (shareable as `?mode=direct&q=Dua%20Lipa`).
+
+## Netlify (static UI)
+
+`netlify.toml` is ready: connect the repo, and Netlify builds the serverless
+bundle and publishes `examples/` — no API server involved.
+
+```bash
+# Equivalent of what Netlify runs on every push:
+rm -rf examples/vendor && just build-web
+```
+
+What you get is the full UI in Direct mode (live Commons + MusicBrainz
+straight from the browser). To also serve API-backed lookups, deploy the
+`Dockerfile` to Fly.io/Render/Railway and set the UI's API field (or `?api=`)
+to that origin — the API reflects CORS origins by default, so no extra
+config is needed. The API itself cannot run on Netlify Functions (Node/Lambda
+runtime: no Bun, no `bun:sqlite`, no long-lived process).
 - `/admin/*` has no authentication: keep it off the public internet or gate
   it at the proxy (basic auth / IP allowlist) before exposing the container.

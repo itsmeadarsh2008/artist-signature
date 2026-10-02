@@ -1,0 +1,22 @@
+# Netlify deploys the static browser UI only (examples/index.html).
+# The Elysia/Bun API cannot run on Netlify Functions (Node/Lambda runtime,
+# no bun:sqlite, no long-lived process) — host it on Fly.io, Render, or
+# Railway via the Dockerfile, then point the UI at it with ?api=.
+# In Direct mode (?mode=direct) the UI needs no API at all.
+
+[build]
+  publish = "examples"
+  command = "curl -fsSL https://bun.sh/install | bash && export PATH=\"$HOME/.bun/bin:$PATH\" && mkdir -p examples/vendor && bun build examples/direct-entry.ts --target=browser --format=iife --minify --outfile=examples/vendor/direct.bundle.js"
+
+# Fingerprinted-by-content bundle in practice; long cache is safe because
+# every rebuild rewrites the file the HTML references relatively.
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
