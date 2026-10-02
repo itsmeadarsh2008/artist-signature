@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Artist Signatures — lookup</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfbfa;
+        --fg: #16150f;
+        --muted: #6a675e;
+        --line: #e0ded6;
+        --card: #ffffff;
+        --accent: #1a5fb4;
+        --danger: #a51d2d;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131311;
+          --fg: #ecebe7;
+          --muted: #9b978c;
+          --line: #2e2d29;
+          --card: #1c1b18;
+          --accent: #8ab4f8;
+          --danger: #f28b82;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 62rem; margin: 0 auto; }
+      h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+      .sub { color: var(--muted); font-size: .9rem; margin: 0 0 2rem; }
+      form { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
+      input, button, select {
+        font: inherit;
+        padding: .6rem .75rem;
+        border-radius: .5rem;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--fg);
+      }
+      input { flex: 1 1 18rem; min-width: 0; }
+      input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      button { cursor: pointer; border-color: transparent; background: var(--accent); color: #fff; font-weight: 550; }
+      button:disabled { opacity: .6; cursor: progress; }
+      .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+      .row label { color: var(--muted); font-size: .85rem; }
+      #status { min-height: 1.5rem; font-size: .9rem; color: var(--muted); }
+      #status[data-kind="error"] { color: var(--danger); }
+      .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }
+      article {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: .75rem;
+        padding: 1rem 1.1rem 1.1rem;
+      }
+      article h2 { font-size: 1rem; margin: 0 0 .75rem; }
+      .frame {
+        display: grid;
+        place-items: center;
+        min-height: 7.5rem;
+        padding: .75rem;
+        border: 1px dashed var(--line);
+        border-radius: .5rem;
+        /* Dark plate so white signatures read in either color scheme. */
+        background: #141412;
+        color: #ecebe7;
+      }
+      /* Rendered via <img>, never inlined (SPEC §49).
+         Signature files are dark ink on transparent/white; inverting the
+         plate renders the strokes white. Scanned JPEGs become negatives,
+         which keeps ink readable on the dark plate too. */
+      .frame img {
+        max-width: 100%;
+        max-height: 9rem;
+        filter: invert(1);
+      }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: .3rem .75rem; margin: .85rem 0 0; font-size: .82rem; }
+      dt { color: var(--muted); }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      a { color: var(--accent); }
+      ul.matches { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+      ul.matches button { width: 100%; text-align: left; background: var(--card); color: var(--fg); border: 1px solid var(--line); font-weight: 400; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: .78rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+      footer a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Artist Signatures</h1>
+      <p class="sub">
+        Type an artist name. Resolves via MusicBrainz / Wikidata identity, then renders the
+        signature with its license and source.
+      </p>
+
+      <form id="form">
+        <input id="q" name="artist" type="search" placeholder="e.g. Ada Melody" autocomplete="off" required />
+        <button type="submit" id="submit">Look up</button>
+      </form>
+
+      <div class="row">
+        <label for="api">API</label>
+        <input id="api" type="url" style="flex: 0 1 20rem" value="http://localhost:3499" />
+        <label for="format">format</label>
+        <select id="format">
+          <option value="">any</option>
+          <option value="svg">svg</option>
+          <option value="png">png</option>
+          <option value="jpeg">jpeg</option>
+          <option value="webp">webp</option>
+        </select>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+      <div id="out" class="grid"></div>
+
+      <footer>
+        Signature assets and metadata keep their original licenses — check each card's license
+        and source before redistributing. <span id="code-note"></span>
+      </footer>
+    </main>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      const out = $("out");
+      const status = $("status");
+
+      const setStatus = (msg, kind = "") => {
+        status.textContent = msg;
+        status.dataset.kind = kind;
+      };
+
+      const el = (tag, props = {}, kids = []) => {
+        const node = Object.assign(document.createElement(tag), props);
+        for (const kid of [].concat(kids)) node.append(kid);
+        return node;
+      };
+
+      // Defensive: only render http(s) asset URLs, never javascript:/data: (SPEC §48).
+      const safeUrl = (url) => {
+        try {
+          const u = new URL(url, location.href);
+          return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+        } catch {
+          return null;
+        }
+      };
+
+      function renderSignature(sig) {
+        const url = safeUrl(sig.asset?.url ?? "");
+        const frame = el("div", { className: "frame" });
+        const placeholder = () =>
+          frame.replaceChildren(
+            el("span", { className: "sub", textContent: "No served asset — metadata only" }),
+          );
+        if (url) {
+          const img = el("img", {
+            src: url,
+            alt: `Signature of ${sig.artist?.name ?? "artist"}`,
+            loading: "lazy",
+          });
+          // Upstream originals can 404 (renamed/deleted files): degrade to the
+          // metadata placeholder instead of a broken-image icon.
+          img.addEventListener("error", placeholder, { once: true });
+          frame.append(img);
+        } else {
+          placeholder();
+        }
+
+        const rows = [
+          ["type", sig.asset?.type],
+          ["format", sig.asset?.format],
+          ["verification", sig.verification],
+          ["license", sig.license?.name],
+          [
+            "source",
+            sig.source?.url
+              ? el("a", { href: safeUrl(sig.source.url) ?? "#", target: "_blank", rel: "noopener noreferrer", textContent: sig.source.url })
+              : null,
+          ],
+        ];
+
+        const dl = el("dl");
+        for (const [label, value] of rows) {
+          if (!value) continue;
+          dl.append(el("dt", { textContent: label }), el("dd", {}, value instanceof Node ? value : String(value)));
+        }
+
+        return el("article", {}, [
+          el("h2", { textContent: sig.artist?.name ?? "Unknown artist" }),
+          frame,
+          dl,
+          el("p", { className: "sub" }, [
+            url ? el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: "open asset" }) : null,
+          ]),
+        ]);
+      }
+
+      function renderMatches(matches) {
+        out.classList.remove("grid");
+        out.classList.add("matches-wrap");
+        const list = el("ul", { className: "matches" });
+        for (const m of matches) {
+          list.append(
+            el("li", {}, [
+              el("button", {
+                type: "button",
+                textContent: `${m.name} — ${m.signature_count} signature${m.signature_count === 1 ? "" : "s"}`,
+                onclick: () => lookup(m.name),
+              }),
+            ]),
+          );
+        }
+        out.replaceChildren(list);
+      }
+
+      function render(payload) {
+        out.classList.add("grid");
+        out.classList.remove("matches-wrap");
+        const sigs = payload.signatures ?? [];
+        if (sigs.length === 0) {
+          out.replaceChildren(el("p", { className: "sub", textContent: "No signatures recorded for this artist yet." }));
+          return;
+        }
+        out.replaceChildren(...sigs.map(renderSignature));
+      }
+
+      async function lookup(artist, format = $("format").value) {
+        const api = $("api").value.replace(/\/+$/, "");
+        $("submit").disabled = true;
+        out.replaceChildren();
+        setStatus(`Looking up “${artist}”…`);
+        try {
+          const params = new URLSearchParams({ artist });
+          if (format) params.set("format", format);
+          const res = await fetch(`${api}/v1/signatures?${params}`, { headers: { accept: "application/json" } });
+          const body = await res.json().catch(() => null);
+
+          if (res.status === 429) {
+            setStatus("Rate limited by the API. Wait a moment and retry.", "error");
+            return;
+          }
+          if (!res.ok) {
+            setStatus(`${body?.error?.code ?? "ERROR"}: ${body?.error?.message ?? res.status}`, "error");
+            return;
+          }
+          if (body.matches) {
+            out.classList.remove("grid");
+            renderMatches(body.matches);
+            setStatus("Several artists match — pick one:");
+            return;
+          }
+          const count = body.signatures?.length ?? 0;
+          setStatus(count === 0 ? "Artist found, but no signatures yet." : `${count} signature${count === 1 ? "" : "s"} for ${body.artist?.name}.`);
+          render(body);
+        } catch (err) {
+          setStatus(`Could not reach the API at ${api} — is it running? (${err.message})`, "error");
+        } finally {
+          $("submit").disabled = false;
+        }
+      }
+
+      $("form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const artist = $("q").value.trim();
+        if (artist) lookup(artist);
+      });
+      $("format").addEventListener("change", () => {
+        const artist = $("q").value.trim();
+        if (artist) lookup(artist);
+      });
+
+      const params = new URLSearchParams(location.search);
+      if (params.get("api")) $("api").value = params.get("api");
+      if (params.get("q")) {
+        $("q").value = params.get("q");
+        lookup(params.get("q"));
+      }
+    </script>
+  </body>
+</html>
