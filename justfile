@@ -51,8 +51,23 @@ api-live db="./data/live.sqlite" assets=assets port=port:
 api-memory port=port:
     bun run apps/api/src/index.ts --db=":memory:" --assets=/tmp/no-assets --port={{ port }} --public-base-url="http://localhost:{{ port }}" --live=on
 
+# Build the API container image (needs Docker).
+docker-build tag="artist-signatures:latest":
+    docker build -t {{ tag }} .
+
+# Run the container: fileless live API on :3000. Override with -e, e.g.
+# -e PORT=8080 -e DB_PATH=/data/signatures.sqlite (plus -v sigdata:/data).
+docker-run tag="artist-signatures:latest" port="3000":
+    docker run --rm -p {{ port }}:3000 -e LIVE=on {{ tag }}
+
 # Serve examples/index.html (the browser lookup UI). Use with `just api`.
-web port="5173":
+# Build the serverless browser bundle (fetch-only core, no SQLite).
+# IIFE (not ESM): index.html loads it as a classic script for file:// use too.
+build-web:
+    mkdir -p examples/vendor
+    bun build examples/direct-entry.ts --target=browser --format=iife --minify --outfile=examples/vendor/direct.bundle.js
+
+web port="5173": build-web
     bunx --bun serve -p {{ port }} examples
 
 # Remote client demo against a running API.

@@ -375,18 +375,22 @@ function dbAliases(db: Db, artistId: string): string[] {
 
 // Standalone server: bun run apps/api/src/index.ts --db=... --port=3000 --assets=... --public-base-url=...
 if (import.meta.main) {
-  const arg = (name: string, fallback: string): string => {
+  // CLI flags win; environment variables (DB_PATH, PORT, ASSETS_DIR,
+  // PUBLIC_BASE_URL, CORS, LIVE) are the fallback so container hosts that
+  // only inject env can configure the server without flags.
+  const arg = (name: string, env: string, fallback: string): string => {
     const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
-    return hit ? hit.slice(name.length + 3) : fallback;
+    if (hit) return hit.slice(name.length + 3);
+    return process.env[env] ?? fallback;
   };
-  const dbPath = arg("db", "./data/signatures.sqlite");
-  const port = parseInt(arg("port", "3000"), 10);
-  const assetDir = arg("assets", "./assets");
-  const publicBaseUrl = arg("public-base-url", `http://localhost:${port}`);
+  const dbPath = arg("db", "DB_PATH", "./data/signatures.sqlite");
+  const port = parseInt(arg("port", "PORT", "3000"), 10);
+  const assetDir = arg("assets", "ASSETS_DIR", "./assets");
+  const publicBaseUrl = arg("public-base-url", "PUBLIC_BASE_URL", `http://localhost:${port}`);
   // Comma-separated allowlist; "true" reflects the request origin.
-  const corsArg = arg("cors", "true");
+  const corsArg = arg("cors", "CORS", "true");
   // "live" enables on-demand Wikimedia lookup for uncrawled artists.
-  const liveArg = arg("live", "off");
+  const liveArg = arg("live", "LIVE", "off");
   const { db } = createDb(dbPath);
   const applied = migrateToLatest(db, join(import.meta.dir, "../../../migrations"));
   if (applied.length > 0) console.log(`applied migrations: ${applied.join(", ")}`);

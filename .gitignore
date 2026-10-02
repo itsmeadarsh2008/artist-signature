@@ -116,5 +116,8 @@ dist
 assets/
 assets-demo/
 
+# Generated browser bundle (`just build-web` regenerates it)
+examples/vendor/
+
 # TernJS port file
 .tern-port
