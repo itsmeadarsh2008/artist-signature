@@ -20,7 +20,7 @@ import {
   type Db,
   type FullSignature,
 } from "@artist-signatures/database";
-import { normalizeName } from "@artist-signatures/resolver";
+import { bestSignature, normalizeName, type RankableSignature } from "@artist-signatures/resolver";
 import type { FetchFn } from "@artist-signatures/types";
 import { findLiveRecords, type DirectDeps } from "@artist-signatures/direct";
 
@@ -159,7 +159,7 @@ class DatasetTransport implements Transport {
         sha256: s.sha256,
       },
       source: source ? { provider: source.provider, url: source.sourceUrl, original_url: source.originalUrl } : null,
-      license: license ? { name: license.name, url: license.url } : { name: "Unknown", url: undefined },
+      license: license ? { name: license.name, url: license.url, status: license.status } : { name: "Unknown", url: undefined, status: "unknown" },
       verification: s.verification,
     };
   }
@@ -278,6 +278,45 @@ export class ArtistSignatures {
     if (!first?.asset?.url) throw new ArtistSignaturesError("SIGNATURE_NOT_FOUND", `No usable signature for '${name}'.`, 404);
     return first;
   }
+
+  /**
+   * The single best signature to render: ranked by license (redistributable
+   * first), format (SVG first), verification, and match confidence — not by
+   * insertion order. Returns SIGNATURE_NOT_FOUND when nothing is servable.
+   */
+  async best(name: string, filters: SignatureFilters = {}) {
+    const result = (await this.signatures(name, filters)) as { signatures?: ClientSignature[] };
+    const list = result.signatures ?? [];
+    if (list.length === 0) throw new ArtistSignaturesError("SIGNATURE_NOT_FOUND", `No signatures for '${name}'.`, 404);
+    const top = bestSignature(list.map(toRankable));
+    if (!top) throw new ArtistSignaturesError("SIGNATURE_NOT_FOUND", `No servable signature for '${name}'.`, 404);
+    return top.original;
+  }
+}
+
+/** Subset of the signature shapes all three transports return. */
+interface ClientSignature {
+  id: string;
+  asset: { url?: string; format?: string; type?: string };
+  source?: { url?: string | null; original_url?: string | null } | null;
+  license?: { name?: string; status?: string | null } | null;
+  verification?: string | null;
+}
+
+function toRankable(s: ClientSignature): RankableSignature & { original: ClientSignature } {
+  return {
+    signature: {
+      id: s.id,
+      type: s.asset?.type ?? null,
+      format: s.asset?.format ?? null,
+      status: "available",
+      verification: s.verification ?? null,
+    },
+    licenses: s.license ? [{ status: s.license.status ?? null }] : [],
+    source: s.source ? { original_url: s.source.original_url ?? null, source_url: s.source.url ?? null } : null,
+    resolutions: [],
+    original: s,
+  };
 }
 
 function filterParams(f: SignatureFilters): Record<string, string> {

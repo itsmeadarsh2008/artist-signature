@@ -109,8 +109,8 @@ function signatureJson(full: FullSignature, publicBaseUrl: string) {
       ? { provider: source.provider, url: source.sourceUrl, original_url: source.originalUrl }
       : null,
     license: license
-      ? { name: license.name, url: license.url }
-      : { name: "Unknown", url: undefined },
+      ? { name: license.name, url: license.url, status: license.status }
+      : { name: "Unknown", url: undefined, status: "unknown" },
     verification: s.verification,
   };
 }

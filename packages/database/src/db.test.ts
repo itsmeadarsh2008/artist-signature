@@ -130,6 +130,22 @@ describe("search", () => {
     expect(rest.nextCursor).toBeUndefined();
     expect(searchArtists(db, "   ", normalizeName).results).toEqual([]);
   });
+
+  test("tolerates typos, reordered tokens, and alias hits", () => {
+    const db = freshDb();
+    seedDua(db);
+    upsertArtist(db, { name: "Madonna" }, normalizeName);
+    // Single-token typo: token LIKE gives recall, fuzzy scoring ranks it top.
+    expect(searchArtists(db, "dua lpia", normalizeName).results[0]?.artist.name).toBe("Dua Lipa");
+    // Reordered tokens.
+    expect(searchArtists(db, "lipa dua", normalizeName).results[0]?.artist.name).toBe("Dua Lipa");
+    // Alias exact outranks unrelated prefix matches.
+    upsertArtist(db, { name: "Dua Lipa Tribute Band" }, normalizeName);
+    expect(searchArtists(db, "dua lipa singer", normalizeName).results[0]?.artist.name).toBe("Dua Lipa");
+    // Prefix still works; unrelated names still miss.
+    expect(searchArtists(db, "du", normalizeName).results[0]?.artist.name).toBe("Dua Lipa");
+    expect(searchArtists(db, "xyzzy plugh", normalizeName).results).toEqual([]);
+  });
 });
 
 describe("moderation and takedowns", () => {

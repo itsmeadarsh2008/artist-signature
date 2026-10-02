@@ -47,6 +47,7 @@
       "name": "@artist-signatures/database",
       "version": "0.1.0",
       "dependencies": {
+        "@artist-signatures/resolver": "workspace:*",
         "drizzle-orm": "0.45.3",
       },
     },

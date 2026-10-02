@@ -19,6 +19,7 @@ import {
   unresolvedSignatures,
 } from "./schema";
 import { newId } from "./ids";
+import { scoreArtistMatch } from "@artist-signatures/resolver";
 import type { Db } from "./client";
 
 export type ArtistRow = typeof artists.$inferSelect;
@@ -345,38 +346,79 @@ export interface SearchResult {
 }
 
 /**
- * Name search over artists + aliases: exact, prefix, then contains.
+ * Name search over artists + aliases, ranked by match quality.
+ *
+ * SQL does recall (exact, prefix, contains, per-token LIKEs over names and
+ * aliases, capped); `scoreArtistMatch` does precision in JS (exact 100 →
+ * prefix 80 → token-set 70 → fuzzy ≥30). Token LIKEs give recall for
+ * reordered queries ("Lipa Dua") and single-token typos ("Dua Lpia"); the JS
+ * scorer then decides the order. Multi-token typos in every token can still
+ * miss —finding those would need a full-table scan per query.
  * Opaque offset cursor (ranked results have no natural keyset).
  */
+const SEARCH_POOL_CAP = 500;
+
 export function searchArtists(db: Db, query: string, normalize: (s: string) => string, limit = 20, cursor?: string): { results: SearchResult[]; nextCursor?: string } {
   const q = normalize(query);
   if (q === "") return { results: [] };
-  const likeQ = `%${q.replace(/[%_]/g, "")}%`;
-  const matched = new Map<string, { artist: ArtistRow; rank: number }>();
-  const consider = (a: ArtistRow, rank: number) => {
-    const cur = matched.get(a.id);
-    if (!cur || rank < cur.rank) matched.set(a.id, { artist: a, rank });
+  const safe = q.replace(/[%_]/g, "");
+  const likeQ = `%${safe}%`;
+  const pool = new Map<string, ArtistRow>();
+  const add = (rows: ArtistRow[]) => {
+    for (const a of rows) {
+      if (pool.size >= SEARCH_POOL_CAP) return;
+      pool.set(a.id, a);
+    }
   };
-  for (const a of db.select().from(artists).where(eq(artists.normalizedName, q)).all()) consider(a, 0);
-  for (const r of db.select({ artist: artists }).from(artistAliases).innerJoin(artists, eq(artistAliases.artistId, artists.id)).where(eq(artistAliases.normalizedAlias, q)).all()) consider(r.artist, 0);
-  for (const a of db.select().from(artists).where(like(artists.normalizedName, `${q.replace(/[%_]/g, "")}%`)).all()) {
-    if (a.normalizedName !== q) consider(a, 1);
+  add(db.select().from(artists).where(eq(artists.normalizedName, q)).all());
+  add(
+    db
+      .select({ artist: artists })
+      .from(artistAliases)
+      .innerJoin(artists, eq(artistAliases.artistId, artists.id))
+      .where(eq(artistAliases.normalizedAlias, q))
+      .all()
+      .map((r) => r.artist),
+  );
+  add(db.select().from(artists).where(like(artists.normalizedName, `${safe}%`)).all());
+  add(db.select().from(artists).where(like(artists.normalizedName, likeQ)).all());
+  for (const token of new Set(q.split(/\s+/).filter((t) => t.length >= 2))) {
+    if (pool.size >= SEARCH_POOL_CAP) break;
+    add(db.select().from(artists).where(like(artists.normalizedName, `%${token.replace(/[%_]/g, "")}%`)).all());
+    if (pool.size >= SEARCH_POOL_CAP) break;
+    add(
+      db
+        .select({ artist: artists })
+        .from(artistAliases)
+        .innerJoin(artists, eq(artistAliases.artistId, artists.id))
+        .where(like(artistAliases.normalizedAlias, `%${token.replace(/[%_]/g, "")}%`))
+        .all()
+        .map((r) => r.artist),
+    );
   }
-  for (const a of db.select().from(artists).where(like(artists.normalizedName, likeQ)).all()) {
-    if (!matched.has(a.id)) consider(a, 2);
+
+  const ids = [...pool.keys()];
+  const aliasLists = new Map<string, string[]>();
+  if (ids.length > 0) {
+    for (const row of db.select().from(artistAliases).where(inArray(artistAliases.artistId, ids)).all()) {
+      const arr = aliasLists.get(row.artistId) ?? [];
+      arr.push(row.normalizedAlias);
+      aliasLists.set(row.artistId, arr);
+    }
   }
-  for (const r of db.select({ artist: artists }).from(artistAliases).innerJoin(artists, eq(artistAliases.artistId, artists.id)).where(like(artistAliases.normalizedAlias, likeQ)).all()) {
-    if (!matched.has(r.artist.id)) consider(r.artist, 2);
-  }
-  const ranked = [...matched.values()].sort((a, b) => a.rank - b.rank || a.artist.name.localeCompare(b.artist.name));
+  const scored = [...pool.values()]
+    .map((artist) => ({ artist, match: scoreArtistMatch(q, artist.normalizedName, aliasLists.get(artist.id) ?? []) }))
+    .filter((e) => e.match.score > 0)
+    .sort((a, b) => b.match.score - a.match.score || a.artist.name.localeCompare(b.artist.name));
+
   const offset = cursor ? (decodeCursor<{ o: number }>(cursor).o ?? 0) : 0;
-  const slice = ranked.slice(offset, offset + limit);
+  const slice = scored.slice(offset, offset + limit);
   const results: SearchResult[] = slice.map(({ artist }) => ({
     artist,
     signatureCount:
       db.select({ n: count() }).from(signatures).where(and(eq(signatures.artistId, artist.id), eq(signatures.status, "available"))).get()?.n ?? 0,
   }));
-  const next = offset + limit < ranked.length ? encodeCursor({ o: offset + limit }) : undefined;
+  const next = offset + limit < scored.length ? encodeCursor({ o: offset + limit }) : undefined;
   return { results, nextCursor: next };
 }
 

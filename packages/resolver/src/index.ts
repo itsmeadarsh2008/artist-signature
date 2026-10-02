@@ -9,6 +9,8 @@
 import { normalizeName, stripFilenameBoilerplate } from "./normalize";
 
 export { normalizeName, stripFilenameBoilerplate };
+export { bestSignature, rankSignatures, scoreArtistMatch, scoreSignature } from "./rank";
+export type { MatchScore, RankableSignature, RankOptions } from "./rank";
 
 /** Minimal structural input: any ParsedCommonsFile satisfies this. */
 export interface ResolvableFile {

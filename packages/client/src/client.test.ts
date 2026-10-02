@@ -158,3 +158,39 @@ describe("ArtistSignatures.direct()", () => {
     await expect(direct().signatures("Dua Lipa", { format: "png" })).rejects.toMatchObject({ code: "SIGNATURE_NOT_FOUND" });
   });
 });
+
+describe("ArtistSignatures.best()", () => {
+  // Canned order is deliberately worst-first: best() must rank, not take [0].
+  const worst = {
+    id: "sig_first",
+    asset: { url: "https://cdn.example.com/first.jpg", format: "jpeg", type: "unknown" },
+    source: { provider: "wikimedia_commons", url: "https://commons.wikimedia.org/wiki/File:F", original_url: "https://cdn.example.com/first.jpg" },
+    license: { name: "Unknown", status: "unknown" },
+    verification: "unverified",
+  };
+  const best = {
+    id: "sig_best",
+    asset: { url: "https://cdn.example.com/best.svg", format: "svg", type: "handwritten" },
+    source: { provider: "wikimedia_commons", url: "https://commons.wikimedia.org/wiki/File:B", original_url: "https://cdn.example.com/best.svg" },
+    license: { name: "CC0 1.0", status: "known" },
+    verification: "verified",
+  };
+  const stubFetch = (async () =>
+    new Response(JSON.stringify({ artist: { name: "Dua Lipa" }, signatures: [worst, best] }), { status: 200 })) as unknown as typeof fetch;
+
+  test("best() ranks by license/format/verification, not position", async () => {
+    const api = new ArtistSignatures({ baseUrl: "http://api.example.com", fetchImpl: stubFetch });
+    const top = (await api.best("Dua Lipa")) as { id: string };
+    expect(top.id).toBe("sig_best");
+    // …while getSignature() keeps first-usable semantics.
+    const first = (await api.getSignature("Dua Lipa")) as unknown as { id: string };
+    expect(first.id).toBe("sig_first");
+  });
+
+  test("best() raises SIGNATURE_NOT_FOUND on empty or unservable lists", async () => {
+    const emptyFetch = (async () =>
+      new Response(JSON.stringify({ artist: { name: "Dua Lipa" }, signatures: [] }), { status: 200 })) as unknown as typeof fetch;
+    const api = new ArtistSignatures({ baseUrl: "http://api.example.com", fetchImpl: emptyFetch });
+    await expect(api.best("Dua Lipa")).rejects.toMatchObject({ code: "SIGNATURE_NOT_FOUND" });
+  });
+});

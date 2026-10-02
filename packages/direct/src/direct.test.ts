@@ -74,3 +74,20 @@ describe("findLiveRecords (no database)", () => {
   });
 });
 
+
+describe("pickBest()", () => {
+  const rec = (id: string, format: string, status: string | null, verification: string) => ({
+    id,
+    asset: { url: "https://cdn.example.com/x", format, type: "handwritten" },
+    source: { provider: "wikimedia_commons", url: "https://commons.wikimedia.org/wiki/File:X", original_url: null },
+    license: { name: "L", status },
+    verification,
+  });
+
+  test("badges the ranked winner by id, null when empty", async () => {
+    const { pickBest } = await import("./index");
+    expect(pickBest([rec("a", "jpeg", "unknown", "unverified"), rec("b", "svg", "known", "unverified")])).toBe("b");
+    expect(pickBest([rec("a", "svg", "known", "verified"), rec("b", "svg", "known", "unverified")])).toBe("a");
+    expect(pickBest([])).toBeNull();
+  });
+});

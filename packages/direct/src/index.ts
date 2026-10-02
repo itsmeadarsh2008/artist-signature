@@ -13,7 +13,7 @@
  */
 
 import { parseCommonsFile, type CommonsFileInput, type ParsedCommonsFile } from "@artist-signatures/parser";
-import { normalizeName } from "@artist-signatures/resolver";
+import { bestSignature, normalizeName } from "@artist-signatures/resolver";
 import { CommonsClient } from "../../../apps/importer/src/wikimedia";
 import { searchMusicBrainzArtist } from "../../../apps/importer/src/musicbrainz";
 
@@ -45,7 +45,7 @@ export interface DirectSignatureRecord {
     sha256?: string | null;
   };
   source: { provider: string; url?: string | null; original_url?: string | null } | null;
-  license: { name: string; url?: string | null };
+  license: { name: string; url?: string | null; status?: string | null };
   verification: "unverified";
 }
 
@@ -197,6 +197,42 @@ export function classifyType(title: string, description: string, categories: str
   return "unknown";
 }
 
+/** API-shaped signature as served by the REST API, the dataset transport, or findLiveRecords. */
+export interface ShapedSignature {
+  id: string;
+  asset?: { url?: string | null; format?: string | null; type?: string | null } | null;
+  source?: { url?: string | null; original_url?: string | null } | null;
+  license?: { name?: string | null; status?: string | null } | null;
+  verification?: string | null;
+}
+
+/**
+ * Best-first pick over API-shaped records (whatever transport produced them).
+ * Returns the winning record id, or null when nothing is servable. The page
+ * uses it to badge the best card; ranking logic itself stays in the resolver
+ * so every consumer shares one implementation.
+ */
+export function pickBest(signatures: ShapedSignature[]): string | null {
+  if (signatures.length === 0) return null;
+  const top = bestSignature(
+    signatures.map((s) => ({
+      signature: {
+        id: s.id,
+        type: s.asset?.type ?? null,
+        format: s.asset?.format ?? null,
+        status: "available",
+        verification: s.verification ?? null,
+      },
+      licenses: s.license ? [{ status: s.license.status ?? null }] : [],
+      source: s.source
+        ? { original_url: s.source.original_url ?? null, source_url: s.source.url ?? null }
+        : null,
+      resolutions: [],
+    })),
+  );
+  return top ? top.signature.id : null;
+}
+
 /** Stable client-side id derived from the upstream page id (no database). */
 function liveId(pageId: number | undefined, title: string): string {
   if (pageId !== undefined) return `live-${pageId}`;
@@ -223,7 +259,7 @@ function toRecord(parsed: ParsedCommonsFile, artist: DirectArtist): DirectSignat
       url: parsed.sourceUrl ?? null,
       original_url: parsed.originalUrl ?? null,
     },
-    license: { name: parsed.license.name, url: parsed.license.url ?? null },
+    license: { name: parsed.license.name, url: parsed.license.url ?? null, status: parsed.license.status },
     verification: "unverified",
   };
 }
