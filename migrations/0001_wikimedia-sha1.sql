@@ -1,0 +1,1 @@
+ALTER TABLE `signatures` ADD `wikimedia_sha1` text;
