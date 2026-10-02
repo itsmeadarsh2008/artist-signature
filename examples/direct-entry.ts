@@ -7,7 +7,9 @@
  * never the client index — the index pulls in `bun:sqlite` via `fromDataset`,
  * which cannot run in a browser.
  */
-import { findLiveRecords } from "../packages/direct/src/index";
+import { findLiveRecords, pickBest } from "../packages/direct/src/index";
+
+export { pickBest };
 
 export interface DirectSignature {
   id: string;
@@ -42,6 +44,8 @@ export async function lookupDirect(name: string, format?: string): Promise<Direc
 }
 
 // Bundle entry point: the page loads this file, not the module graph.
-(window as unknown as { ArtistDirect: { lookupDirect: typeof lookupDirect } }).ArtistDirect = {
-  lookupDirect,
-};
+(
+  window as unknown as {
+    ArtistDirect: { lookupDirect: typeof lookupDirect; pickBest: typeof pickBest };
+  }
+).ArtistDirect = { lookupDirect, pickBest };
