@@ -79,8 +79,10 @@ prefixes (60) → typo-tolerant fuzzy (≥30, so "Dua Lpia" works). Unrelated
 names score 0 and never surface.
 
 When an artist has several signatures, `best()` picks the one to render —
-redistributable license first, then SVG format, verification state, and
-match confidence — instead of whatever was imported first:
+redistributable license first, then SVG format, verification state, match
+confidence, and finally a panoramic-crop bonus (wide images are usually
+complete signature lines; square canvases are often fragments) — instead of
+whatever was imported first:
 
 ```ts
 const top = await api.best("Dua Lipa"); // ranked pick

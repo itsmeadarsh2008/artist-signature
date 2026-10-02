@@ -134,6 +134,19 @@ function hasUrl(s: RankableSignature): boolean {
   return all.some((x) => x.originalUrl ?? x.original_url ?? x.sourceUrl ?? x.source_url);
 }
 
+/**
+ * Panoramic-crop bonus: a wide image is usually a complete signature line,
+ * while near-square canvases are often fragments with empty whitespace.
+ * Capped so it breaks ties but never outweighs license, format, or
+ * verification. No penalty for tall images — only wide ones earn it.
+ */
+function panoramaBonus(width?: number | null, height?: number | null): number {
+  if (!width || !height || height <= 0) return 0;
+  const aspect = width / height;
+  if (aspect <= 1.5) return 0;
+  return Math.min(15, Math.round((aspect - 1.5) * 5));
+}
+
 /** Higher wins. Deterministic: ties break on record id. */
 export function scoreSignature(s: RankableSignature): number {
   const statuses = licenseStatuses(s);
@@ -150,6 +163,7 @@ export function scoreSignature(s: RankableSignature): number {
   if (confidences.length > 0) score += Math.round(Math.max(...confidences) * 20);
   if (hasUrl(s)) score += 5;
   if (s.signature.width != null && s.signature.height != null) score += 5;
+  score += panoramaBonus(s.signature.width, s.signature.height);
   return score;
 }
 

@@ -63,3 +63,41 @@ describe("scoreSignature / rankSignatures", () => {
     expect(() => scoreSignature({ signature: { id: "x" } })).not.toThrow();
   });
 });
+
+describe("panoramic crop bonus (real Commons dimensions)", () => {
+  // Michael Jackson: the wide full-name crop must beat the square scribble
+  // despite svg-outranking-png, with all else equal.
+  const mjSquare = sig(
+    { id: "sig_mj1", format: "svg", width: 623, height: 613 },
+    { resolutions: [{ confidence: 0.95 }] },
+  );
+  const mjWide = sig(
+    { id: "sig_mj3", format: "png", width: 330, height: 70 },
+    { resolutions: [{ confidence: 0.95 }] },
+  );
+  const mjMid = sig(
+    { id: "sig_mj2", format: "jpeg", type: "initials", width: 990, height: 635 },
+    { resolutions: [{ confidence: 0.95 }] },
+  );
+
+  test("wide full signature wins; fragment types still sort last", () => {
+    expect(bestSignature([mjSquare, mjWide, mjMid])?.signature.id).toBe("sig_mj3");
+  });
+
+  // Taylor Swift: identical scores except dimensions — the wider crop decides.
+  test("wider crop breaks exact ties", () => {
+    const narrow = sig({ id: "sig_t1", format: "svg", width: 512, height: 287 }, { resolutions: [{ confidence: 0.95 }] });
+    const wide = sig({ id: "sig_t2", format: "svg", width: 1000, height: 300 }, { resolutions: [{ confidence: 0.95 }] });
+    expect(scoreSignature(narrow)).toBe(scoreSignature(wide) - 8);
+    expect(bestSignature([narrow, wide])?.signature.id).toBe("sig_t2");
+  });
+
+  test("square and portrait images earn no panorama bonus", () => {
+    const square = sig({ id: "sq", width: 100, height: 100 });
+    const portrait = sig({ id: "pt", width: 70, height: 330 });
+    const missing = sig({ id: "na" });
+    expect(scoreSignature(square)).toBe(scoreSignature(portrait));
+    // Missing dimensions only forgo the +5 completeness bonus, nothing else.
+    expect(scoreSignature(square)).toBe(scoreSignature(missing) + 5);
+  });
+});
