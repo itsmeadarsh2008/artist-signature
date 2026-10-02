@@ -69,8 +69,34 @@ GET /admin/review/unresolved           # human review queue (no auth — see bel
 ```
 
 Each signature carries `asset` (served mirror URL, else the upstream
-`original_url`), `license` (`{ name, url }`, always the *original* license),
-`source` (provider, Commons page, original URL), and a `verification` state.
+`original_url`), `license` (`{ name, url, status }`, always the *original*
+license), `source` (provider, Commons page, original URL), and a
+`verification` state.
+
+Search is scored, not just matched: exact name (100) → exact alias (90) →
+prefix (80) → token-set in any order (70, so "Lipa Dua" works) → token
+prefixes (60) → typo-tolerant fuzzy (≥30, so "Dua Lpia" works). Unrelated
+names score 0 and never surface.
+
+When an artist has several signatures, `best()` picks the one to render —
+redistributable license first, then SVG format, verification state, and
+match confidence — instead of whatever was imported first:
+
+```ts
+const top = await api.best("Dua Lipa"); // ranked pick
+const first = await api.getSignature("Dua Lipa"); // first listed
+```
+
+## Web UI
+
+`just web` serves `examples/index.html` (http://localhost:5173). Signatures
+render white on a dark plate in any color scheme; the top-ranked card carries
+a **Best pick** badge (same `best()` ranking as the client, computed in-page
+for whatever transport served the results); clicking a signature — or
+focusing it and pressing Enter — opens a zoomed view (Esc or backdrop click
+closes it). Unservable assets degrade to a metadata-only placeholder instead
+of a broken-image icon. Deep links work: `?q=Dua%20Lipa`,
+`?mode=direct&q=Dua%20Lipa`.
 
 ## Layout
 
@@ -79,7 +105,7 @@ apps/api/          Elysia REST API (SPEC §27-34, §43, §60) + live lookup
 apps/importer/     Wikimedia crawler + import pipeline (SPEC §5, §23-26)
 packages/types/    Shared domain types
 packages/parser/   Commons extmetadata, wikitext and license parsing
-packages/resolver/ Name normalization and confidence-scored resolution
+packages/resolver/ Name normalization, confidence-scored resolution, search + signature ranking
 packages/direct/   Fetch-only live core (server + browser share it)
 packages/database/ Drizzle schema, queries, migrations runner (SQLite)
 packages/client/   Remote, dataset-file, and direct client modes
@@ -95,7 +121,7 @@ justfile           Task runner (just --list)
 ## Development
 
 ```bash
-just test       # 90 tests: unit + stubbed integration, no network needed
+just test       # 101 tests: unit + stubbed integration, no network needed
 just check      # TypeScript, no emit
 just demo       # full offline tour: seed → stubbed import → API → clients → export
 
