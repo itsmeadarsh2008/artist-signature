@@ -1,118 +1,164 @@
 # artist-signature
-A not so simple API to retrieve artists' signatures
+A not so simple API to retrieve artists' signatures.
 
+Type an artist name, get their signature(s) — resolved to a MusicBrainz
+identity, with the original license and Commons provenance on every record.
 See [SPEC.md](SPEC.md) for the full design.
+
+Three ways to retrieve, same shapes throughout:
+
+| Mode | Command | Server | Database | Caching |
+|---|---|---|---|---|
+| API + SQLite | `just api` | yes | file | persistent |
+| API, fileless | `just api-memory` | yes | `:memory:` | process lifetime |
+| Direct | UI toggle / `ArtistSignatures.direct()` | no | none | none (live every call) |
+
+## Quickstart
+
+Prerequisites: [Bun](https://bun.sh/) 1.x and [just](https://just.systems/)
+(`just --list` shows every recipe; recipe args are positional).
+
+```bash
+just install    # bun install
+just seed       # demo database (Ada Melody, Test Tones, Stub Star)
+just api        # API on http://localhost:3499 (blocking; Ctrl-C to stop)
+just web        # UI on http://localhost:5173 (second terminal)
+```
+
+Open http://localhost:5173 and search. Or skip the UI:
+
+```bash
+curl "http://localhost:3499/v1/signatures?artist=Ada%20Melody"
+```
+
+No crawl needed for real artists — the API resolves uncrawled names live:
+
+```bash
+just api-live   # same API plus on-demand Wikimedia lookup (cached into the DB)
+curl "http://localhost:3499/v1/signatures?artist=Dua%20Lipa"
+```
+
+No server at all — switch the UI's source selector to **Direct — no server**,
+or in code:
+
+```ts
+import { ArtistSignatures } from "@artist-signatures/client";
+
+const api = ArtistSignatures.direct(); // no baseUrl, no dataset file
+const result = await api.signatures("Dua Lipa"); // live Commons + MusicBrainz
+```
+
+Direct mode does name lookups only (`signatures`, `getSignature`); `search`
+and MBID lookup need the index a server or dataset file provides.
+
+## API
+
+All responses are `{ artist, signatures[] }` (or `{ matches[] }` when several
+artists plausibly fit, never a silent wrong pick) and every error is
+`{ error: { code, message } }`.
+
+```text
+GET /v1/signatures?artist=<name>&format=svg&type=handwritten&verified=true
+GET /v1/name/<name>                    # same, for non-MusicBrainz consumers
+GET /v1/artists/<musicbrainz-id>
+GET /v1/signatures/<id>                # full metadata + provenance
+GET /v1/search?q=<query>&limit=20&cursor=…
+GET /v1/assets/…                       # mirrored files (immutable caching)
+POST /v1/takedowns                     # { signatureId, reason, requester }
+GET /admin/review/unresolved           # human review queue (no auth — see below)
+```
+
+Each signature carries `asset` (served mirror URL, else the upstream
+`original_url`), `license` (`{ name, url }`, always the *original* license),
+`source` (provider, Commons page, original URL), and a `verification` state.
 
 ## Layout
 
 ```text
-apps/api/          Elysia REST API (SPEC §27-34, §43, §60)
+apps/api/          Elysia REST API (SPEC §27-34, §43, §60) + live lookup
 apps/importer/     Wikimedia crawler + import pipeline (SPEC §5, §23-26)
 packages/types/    Shared domain types
-packages/parser/   Commons extmetadata + wikitext + license parsing
-packages/resolver/ Name normalization + artist scoring
+packages/parser/   Commons extmetadata, wikitext and license parsing
+packages/resolver/ Name normalization and confidence-scored resolution
+packages/direct/   Fetch-only live core (server + browser share it)
 packages/database/ Drizzle schema, queries, migrations runner (SQLite)
-packages/client/   Remote + offline (`fromDataset`) client library
+packages/client/   Remote, dataset-file, and direct client modes
 migrations/        SQL migrations (drizzle-kit generated)
 scripts/           migrate + dataset export (JSONL/SQLite)
+examples/          Runnable demos, browser UI, serverless bundle entry
 data/              Local SQLite files (gitignored via *.sqlite)
 assets/            Mirrored signature files, content-addressed (gitignored)
+Dockerfile         Fileless live API image (oven/bun)
+justfile           Task runner (just --list)
 ```
+
+## Development
+
+```bash
+just test       # 90 tests: unit + stubbed integration, no network needed
+just check      # TypeScript, no emit
+just demo       # full offline tour: seed → stubbed import → API → clients → export
+
+just seed         # demo DB + asset mirror (idempotent)
+just import-demo  # real crawl + pipeline, stubbed network
+just client-remote / just client-local
+just export       # JSONL + SQLite snapshot to ./dist
+
+# Real Wikimedia crawl (resumable; re-runs pick up where they left off)
+just crawl ./data/signatures.sqlite ./assets "Category:Signatures" 20 2000000 3
+```
+
+Conventions that matter: the importer never treats a filename as an identity
+(every match carries a confidence score and method); unresolved signatures are
+kept, not discarded; upstream deletions mark records `unavailable` instead of
+deleting them; assets are mirrored only when the extracted license status is
+`known`, otherwise the upstream `original_url` is served.
 
 ## Licensing
 
-This project uses split licensing:
+Split licensing:
 
-- **Code** — MIT License. See [LICENSE-MIT](LICENSE-MIT). This covers the API
-  server, importer, parser, resolver, database schema, and client libraries.
-- **Dataset** — CC BY 4.0 for the original curation work. See
-  [LICENSE-CC](LICENSE-CC). This covers the schema, artist identity and
-  resolution records, provenance links, and dataset snapshots published by
-  this project.
-- **Signature assets and third-party metadata** — licensed according to their
-  respective source licenses (e.g. CC0, CC BY, public domain). These are
-  **not** relicensed as MIT or CC BY. Every record carries its own `license`
-  and `source` metadata, and the original source page remains the
-  authoritative license record.
+- **Code** — MIT License ([LICENSE-MIT](LICENSE-MIT)): API server, importer,
+  parser, resolver, database schema, client libraries.
+- **Dataset curation** — CC BY 4.0 ([LICENSE-CC](LICENSE-CC)): schema, artist
+  identity and resolution records, provenance links, published snapshots.
+- **Signature assets and third-party metadata** — keep their original source
+  licenses (CC0, CC BY, public domain…). They are **not** relicensed as MIT
+  or CC BY; each record carries its own `license` + `source`, and the
+  original source page is authoritative:
 
 ```json
 {
-  "license": {
-    "name": "CC0 1.0",
-    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
-  },
-  "source": {
-    "provider": "wikimedia_commons",
-    "url": "https://commons.wikimedia.org/wiki/File:..."
-  }
+  "license": { "name": "CC0 1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+  "source": { "provider": "wikimedia_commons", "url": "https://commons.wikimedia.org/wiki/File:..." }
 }
 ```
 
 If you cannot determine the license for a given asset, assume all rights are
 reserved and do not redistribute it.
 
-## Development
+## Hosting
 
-Prerequisites: [Bun](https://bun.sh/) 1.x and [just](https://just.systems/).
-PostgreSQL is the recommended production backend (SPEC §22); the current
-implementation runs on SQLite via `bun:sqlite`, which needs no server.
+The API is one Bun process with no required disk state. `Dockerfile` runs it
+fileless (`DB_PATH=:memory:`, `LIVE=on`); configure with environment variables
+(`PORT`, `DB_PATH`, `ASSETS_DIR`, `PUBLIC_BASE_URL`, `CORS`, `LIVE`) — CLI
+flags (`--db=…` etc.) take precedence over env.
 
 ```bash
-just install    # bun install
-just test       # all unit + integration tests
-just check      # TypeScript, no emit
-
-# Full offline tour: seed -> stubbed import -> API -> both clients -> export
-just demo
-
-# Individual steps (recipe args are positional: `just api <db> <assets> <port>`)
-just seed         # demo DB + asset mirror (idempotent)
-just import-demo  # real crawl + pipeline, stubbed network (no Wikimedia access)
-just api          # serve the API (blocking)
-just client-remote
-just client-local
-just export
-
-# Real Wikimedia crawl (resumable; re-runs pick up where they left off)
-just crawl ./data/signatures.sqlite ./assets "Category:Signatures" 20 2000000 3
-
-# Live lookup: uncrawled artists resolve against Wikimedia on demand and are
-# cached into the DB (metadata-only, no downloads). Seed lists are still the
-# bulk path; this covers the long tail.
-just api-live
-curl "http://localhost:3499/v1/signatures?artist=Dua%20Lipa"
-
-# No database at all: in-memory SQLite + live lookup. Nothing is written to
-# disk; repeats are cached for the process lifetime, restarts re-fetch (~3s).
-just api-memory
-curl "http://localhost:3499/v1/signatures?artist=Ed%20Sheeran"
-
-# Browser UI (needs the API running; defaults to localhost:3499)
-just web          # open http://localhost:5173
+just docker-build
+just docker-run                          # :3000, live lookup, nothing persisted
+docker run --rm -p 3000:3000 \
+  -e LIVE=on -e DB_PATH=/data/signatures.sqlite \
+  -e PUBLIC_BASE_URL=https://<your-host> \
+  -v sigdata:/data artist-signatures     # persisted cache across restarts
 ```
 
-Runnable scripts live in [`examples/`](examples/) — start with
-`examples/seed.ts`, then `examples/client-remote.ts` /
-`examples/client-local.ts` against the demo database.
-
-Quick client usage (SPEC §35-37):
-
-```ts
-import { ArtistSignatures } from "@artist-signatures/client";
-
-const api = new ArtistSignatures({ baseUrl: "http://localhost:3000" });
-const result = await api.signatures("Dua Lipa");
-console.log(result.signatures);
-
-// Offline, from a published snapshot:
-const db = await ArtistSignatures.fromDataset("./signatures.sqlite");
-const same = await db.signatures("Dua Lipa");
-```
-
-Notes:
-
-- `/admin/*` has no authentication yet — keep it off the public internet or
-  put it behind auth before deploying.
-- Only files whose extracted license status is `known` are mirrored into
-  `assets/`; everything else keeps metadata + provenance with a fallback to
-  the upstream original URL.
+- Set `PUBLIC_BASE_URL` to your public origin, otherwise mirrored asset URLs
+  point at localhost.
+- No volumes are needed for fileless mode; add one only for a persistent
+  `DB_PATH`. `HEALTHCHECK` hits `/v1/health`.
+- The browser UI is static (`examples/index.html`) — host it anywhere and
+  point it at the API via its API field or `?api=`. In Direct mode it needs
+  no API at all (shareable as `?mode=direct&q=Dua%20Lipa`).
+- `/admin/*` has no authentication: keep it off the public internet or gate
+  it at the proxy (basic auth / IP allowlist) before exposing the container.
