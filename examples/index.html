@@ -109,6 +109,11 @@
       </form>
 
       <div class="row">
+        <label for="mode">source</label>
+        <select id="mode">
+          <option value="api">API server</option>
+          <option value="direct">Direct — no server</option>
+        </select>
         <label for="api">API</label>
         <input id="api" type="url" style="flex: 0 1 20rem" value="http://localhost:3499" />
         <label for="format">format</label>
@@ -130,6 +135,9 @@
       </footer>
     </main>
 
+    <!-- Classic deferred script: executes before the module script below, so
+         window.ArtistDirect exists by the time init code (incl. ?q= links) runs. -->
+    <script src="./vendor/direct.bundle.js" defer></script>
     <script type="module">
       const $ = (id) => document.getElementById(id);
       const out = $("out");
@@ -235,36 +243,64 @@
         out.replaceChildren(...sigs.map(renderSignature));
       }
 
-      async function lookup(artist, format = $("format").value) {
+      async function lookupViaApi(artist, format) {
         const api = $("api").value.replace(/\/+$/, "");
+        const params = new URLSearchParams({ artist });
+        if (format) params.set("format", format);
+        const res = await fetch(`${api}/v1/signatures?${params}`, { headers: { accept: "application/json" } });
+        const body = await res.json().catch(() => null);
+
+        if (res.status === 429) {
+          setStatus("Rate limited by the API. Wait a moment and retry.", "error");
+          return;
+        }
+        if (!res.ok) {
+          setStatus(`${body?.error?.code ?? "ERROR"}: ${body?.error?.message ?? res.status}`, "error");
+          return;
+        }
+        if (body.matches) {
+          out.classList.remove("grid");
+          renderMatches(body.matches);
+          setStatus("Several artists match — pick one:");
+          return;
+        }
+        const count = body.signatures?.length ?? 0;
+        setStatus(count === 0 ? "Artist found, but no signatures yet." : `${count} signature${count === 1 ? "" : "s"} for ${body.artist?.name}.`);
+        render(body);
+      }
+
+      async function lookupDirect(artist, format) {
+        if (!window.ArtistDirect) {
+          setStatus("Direct bundle not loaded — serve via `just web` so vendor/direct.bundle.js exists.", "error");
+          return;
+        }
+        // No server, no database: the browser queries Commons + MusicBrainz
+        // itself. Nothing is cached; every lookup is live.
+        const body = await window.ArtistDirect.lookupDirect(artist, format || undefined);
+        const count = body.signatures.length;
+        setStatus(
+          `${count} signature${count === 1 ? "" : "s"} for ${body.artist?.name} (live, uncached).`,
+        );
+        render(body);
+      }
+
+      async function lookup(artist, format = $("format").value) {
         $("submit").disabled = true;
         out.replaceChildren();
         setStatus(`Looking up “${artist}”…`);
         try {
-          const params = new URLSearchParams({ artist });
-          if (format) params.set("format", format);
-          const res = await fetch(`${api}/v1/signatures?${params}`, { headers: { accept: "application/json" } });
-          const body = await res.json().catch(() => null);
-
-          if (res.status === 429) {
-            setStatus("Rate limited by the API. Wait a moment and retry.", "error");
-            return;
+          if ($("mode").value === "direct") {
+            await lookupDirect(artist, format);
+          } else {
+            await lookupViaApi(artist, format);
           }
-          if (!res.ok) {
-            setStatus(`${body?.error?.code ?? "ERROR"}: ${body?.error?.message ?? res.status}`, "error");
-            return;
-          }
-          if (body.matches) {
-            out.classList.remove("grid");
-            renderMatches(body.matches);
-            setStatus("Several artists match — pick one:");
-            return;
-          }
-          const count = body.signatures?.length ?? 0;
-          setStatus(count === 0 ? "Artist found, but no signatures yet." : `${count} signature${count === 1 ? "" : "s"} for ${body.artist?.name}.`);
-          render(body);
         } catch (err) {
-          setStatus(`Could not reach the API at ${api} — is it running? (${err.message})`, "error");
+          if (err?.code === "ARTIST_NOT_FOUND" || err?.status === 404) {
+            setStatus("No artist was found for the supplied name.", "error");
+          } else {
+            const api = $("api").value.replace(/\/+$/, "");
+            setStatus(`Lookup failed (${err.message ?? err}). ${$("mode").value === "api" ? `Could not reach the API at ${api} — is it running?` : "Check your connection and retry."}`, "error");
+          }
         } finally {
           $("submit").disabled = false;
         }
@@ -282,6 +318,11 @@
 
       const params = new URLSearchParams(location.search);
       if (params.get("api")) $("api").value = params.get("api");
+      if (params.get("mode") === "direct") $("mode").value = "direct";
+      $("mode").addEventListener("change", () => {
+        $("api").disabled = $("mode").value === "direct";
+      });
+      $("api").disabled = $("mode").value === "direct";
       if (params.get("q")) {
         $("q").value = params.get("q");
         lookup(params.get("q"));

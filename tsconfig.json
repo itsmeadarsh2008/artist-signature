@@ -11,6 +11,7 @@
       "@artist-signatures/parser": ["./packages/parser/src/index.ts"],
       "@artist-signatures/resolver": ["./packages/resolver/src/index.ts"],
       "@artist-signatures/database": ["./packages/database/src/index.ts"],
+      "@artist-signatures/direct": ["./packages/direct/src/index.ts"],
       "@artist-signatures/client": ["./packages/client/src/index.ts"]
     }
   },

@@ -7,6 +7,7 @@
  */
 
 import { normalizeName } from "@artist-signatures/resolver";
+import type { FetchFn } from "@artist-signatures/types";
 
 const MB_API = "https://musicbrainz.org/ws/2";
 const USER_AGENT = "ArtistSignatures/1.0 (dataset importer)";
@@ -23,7 +24,17 @@ let lastCall = 0;
 const cache = new Map<string, MusicBrainzArtist | undefined>();
 
 /** Exact normalized match against persons/groups; undefined when ambiguous. */
-export async function searchMusicBrainzArtist(name: string, fetchImpl: typeof fetch = fetch): Promise<MusicBrainzArtist | undefined> {
+/** `fetch` keeping its receiver: detached `fetch` is an "Illegal invocation" in browsers. */
+function boundFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
+}
+
+export async function searchMusicBrainzArtist(
+  // Arrow wrapper, not bare `fetch`: detached `fetch` throws "Illegal
+  // invocation" in browsers (see CommonsClient).
+  name: string,
+  fetchImpl: FetchFn = boundFetch,
+): Promise<MusicBrainzArtist | undefined> {
   const key = normalizeName(name);
   if (key === "") return undefined;
   const cached = cache.get(key);

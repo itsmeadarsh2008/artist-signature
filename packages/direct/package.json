@@ -1,0 +1,12 @@
+{
+  "name": "@artist-signatures/direct",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@artist-signatures/parser": "workspace:*",
+    "@artist-signatures/resolver": "workspace:*"
+  }
+}

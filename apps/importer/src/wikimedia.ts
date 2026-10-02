@@ -9,12 +9,13 @@
  */
 
 import type { CommonsFileInput } from "@artist-signatures/parser";
+import type { FetchFn } from "@artist-signatures/types";
 
 export const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 export const USER_AGENT = "ArtistSignatures/1.0 (https://github.com/example/artist-signatures; dataset importer)";
 
 export interface CommonsClientOptions {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchFn;
   userAgent?: string;
   /** Minimum ms between requests. Default 200. */
   minDelayMs?: number;
@@ -29,15 +30,23 @@ export interface CategoryMember {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** `fetch` keeping its receiver: detached `fetch` is an "Illegal invocation" in browsers. */
+function boundFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
+}
+
 export class CommonsClient {
-  private fetchImpl: typeof fetch;
+  private fetchImpl: FetchFn;
   private userAgent: string;
   private minDelayMs: number;
   private maxRetries: number;
   private lastCall = 0;
 
   constructor(opts: CommonsClientOptions = {}) {
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    // Wrapped in an arrow closure: a bare `fetch` reference loses its
+    // receiver and throws "Illegal invocation" in browsers (Bun/Node are
+    // unaffected, but this client ships to browsers too).
+    this.fetchImpl = opts.fetchImpl ?? boundFetch;
     this.userAgent = opts.userAgent ?? USER_AGENT;
     this.minDelayMs = opts.minDelayMs ?? 200;
     this.maxRetries = opts.maxRetries ?? 5;
@@ -45,7 +54,9 @@ export class CommonsClient {
 
   /** GET with pacing + retry. Throws the last error after maxRetries. */
   async get(params: Record<string, string>): Promise<unknown> {
-    const url = `${COMMONS_API}?${new URLSearchParams({ format: "json", formatversion: "2", ...params })}`;
+    // `origin=*` makes MediaWiki send `Access-Control-Allow-Origin: *`, which
+    // is what lets browsers call the API directly. Harmless server-side.
+    const url = `${COMMONS_API}?${new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...params })}`;
     let attempt = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {

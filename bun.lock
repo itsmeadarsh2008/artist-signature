@@ -38,6 +38,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@artist-signatures/database": "workspace:*",
+        "@artist-signatures/direct": "workspace:*",
         "@artist-signatures/resolver": "workspace:*",
         "drizzle-orm": "0.45.3",
       },
@@ -47,6 +48,14 @@
       "version": "0.1.0",
       "dependencies": {
         "drizzle-orm": "0.45.3",
+      },
+    },
+    "packages/direct": {
+      "name": "@artist-signatures/direct",
+      "version": "0.1.0",
+      "dependencies": {
+        "@artist-signatures/parser": "workspace:*",
+        "@artist-signatures/resolver": "workspace:*",
       },
     },
     "packages/parser": {
@@ -68,6 +77,8 @@
     "@artist-signatures/client": ["@artist-signatures/client@workspace:packages/client"],
 
     "@artist-signatures/database": ["@artist-signatures/database@workspace:packages/database"],
+
+    "@artist-signatures/direct": ["@artist-signatures/direct@workspace:packages/direct"],
 
     "@artist-signatures/importer": ["@artist-signatures/importer@workspace:apps/importer"],
 

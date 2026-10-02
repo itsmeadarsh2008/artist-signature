@@ -98,3 +98,12 @@ export interface ApiError {
     message: string;
   };
 }
+
+/**
+ * Minimal fetch shape used across Commons/MusicBrainz adapters and transports.
+ * Deliberately narrower than `typeof fetch` (whose Bun flavor carries a
+ * non-standard `preconnect` member no plain function can satisfy), and narrow
+ * enough that any `(url, init?) => Promise<Response>` — including a receiver-
+ * bound wrapper, which browsers require — is assignable.
+ */
+export type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;

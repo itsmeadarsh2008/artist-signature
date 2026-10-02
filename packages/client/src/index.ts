@@ -21,6 +21,8 @@ import {
   type FullSignature,
 } from "@artist-signatures/database";
 import { normalizeName } from "@artist-signatures/resolver";
+import type { FetchFn } from "@artist-signatures/types";
+import { findLiveRecords, type DirectDeps } from "@artist-signatures/direct";
 
 export class ArtistSignaturesError extends Error {
   code: string;
@@ -47,10 +49,17 @@ interface Transport {
   get<T>(path: string, params?: Record<string, string>): Promise<T>;
 }
 
+/** `fetch` keeping its receiver: detached `fetch` is an "Illegal invocation" in browsers. */
+function boundFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
+}
+
 class HttpTransport implements Transport {
   constructor(
     private baseUrl: string,
-    private fetchImpl: typeof fetch = fetch,
+    // Bound wrapper, not bare `fetch`: detached `fetch` throws "Illegal
+    // invocation" in browsers (see CommonsClient).
+    private fetchImpl: FetchFn = boundFetch,
   ) {}
   async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
     const url = `${this.baseUrl.replace(/\/$/, "")}${path}?${new URLSearchParams(params)}`;
@@ -156,9 +165,47 @@ class DatasetTransport implements Transport {
   }
 }
 
+/**
+ * No server, no database: answers name lookups straight from Wikimedia
+ * Commons + MusicBrainz over fetch. Works in browsers (both APIs allow
+ * cross-origin reads) as well as in Bun/Node. Nothing is persisted and there
+ * is no artist index, so only name lookups (`artist`, `signatures`,
+ * `getSignature`) are supported — `search` and MBID lookup need a server or
+ * a dataset file.
+ */
+class DirectTransport implements Transport {
+  constructor(private deps: DirectDeps = {}) {}
+
+  async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+    if ((path === "/v1/signatures" && params.artist) || path.startsWith("/v1/name/")) {
+      const name =
+        params.artist ?? decodeURIComponent(path.slice("/v1/name/".length));
+      const { artist, items } = await findLiveRecords(name, this.deps);
+      if (items.length === 0) {
+        throw new ArtistSignaturesError("ARTIST_NOT_FOUND", "No artist was found for the supplied name.", 404);
+      }
+      let signatures = items.map((i) => i.record);
+      if (params.format) signatures = signatures.filter((s) => s.asset.format === params.format);
+      if (params.type) signatures = signatures.filter((s) => s.asset.type === params.type);
+      if (signatures.length === 0) {
+        throw new ArtistSignaturesError("SIGNATURE_NOT_FOUND", "No signature matches the supplied filters.", 404);
+      }
+      return {
+        artist: { name: artist.name, musicbrainz_id: artist.musicbrainzId },
+        signatures,
+      } as T;
+    }
+    throw new ArtistSignaturesError(
+      "INVALID_REQUEST",
+      "Direct mode supports name lookups only; use a server or dataset file for search and MBID lookup.",
+      400,
+    );
+  }
+}
+
 export interface ArtistSignaturesOptions {
   baseUrl?: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchFn;
 }
 
 export class ArtistSignatures {
@@ -181,6 +228,17 @@ export class ArtistSignatures {
   static async fromDataset(path: string, opts: { publicBaseUrl?: string } = {}): Promise<ArtistSignatures> {
     const { db } = createDb(path);
     return ArtistSignatures.dataset(db, opts.publicBaseUrl);
+  }
+
+  /**
+   * Serverless mode: no API server, no database. Answers name lookups with
+   * live upstream requests (`fetch` only — safe in browsers). Nothing is
+   * cached or persisted; each call hits Commons/MusicBrainz directly.
+   */
+  static direct(deps: DirectDeps = {}): ArtistSignatures {
+    const api = new ArtistSignatures();
+    api.transport = new DirectTransport(deps);
+    return api;
   }
 
   search(query: string, opts: { limit?: number; cursor?: string } = {}) {

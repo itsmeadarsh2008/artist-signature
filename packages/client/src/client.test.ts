@@ -110,3 +110,51 @@ describe("live roundtrip (client -> HTTP -> API -> db)", () => {
     }
   });
 });
+
+describe("ArtistSignatures.direct()", () => {
+  const duaPage = {
+    title: "File:Dua Lipa (nënshkrim).svg",
+    pageid: 91289492,
+    url: "https://upload.wikimedia.org/wikipedia/commons/1/2/dua.svg",
+    descriptionurl: "https://commons.wikimedia.org/wiki/File:Dua_Lipa.svg",
+    mime: "image/svg+xml",
+    extmetadata: {
+      ImageDescription: { value: "Digital recreation of Dua Lipa's signature" },
+      LicenseShortName: { value: "Public domain" },
+    },
+    wikitext: "{{PD-signature}}\n[[Category:Signatures of vocalists from Kosovo]]",
+  };
+  const stub = {
+    async *categoryMembers() {
+      yield { pageid: 91289492, title: duaPage.title, kind: "file" as const };
+    },
+    async get() {
+      return { query: { search: [] } };
+    },
+    async fetchFileMetadata() {
+      return [duaPage];
+    },
+  };
+  const mb = async (name: string) => (name === "Dua Lipa" ? { id: "mbid-dua", name: "Dua Lipa" } : undefined);
+  const direct = () => ArtistSignatures.direct({ client: stub as never, lookupMusicBrainz: mb });
+
+  test("signatures() answers without a server or database", async () => {
+    const res = (await direct().signatures("Dua Lipa")) as { artist: { name: string }; signatures: { id: string }[] };
+    expect(res.artist.name).toBe("Dua Lipa");
+    expect(res.signatures.map((s) => s.id)).toEqual(["live-91289492"]);
+  });
+
+  test("getSignature() returns the first usable record", async () => {
+    const sig = (await direct().getSignature("Dua Lipa")) as { asset: { url: string } };
+    expect(sig.asset.url).toContain("upload.wikimedia.org");
+  });
+
+  test("unknown names raise ARTIST_NOT_FOUND; search raises INVALID_REQUEST", async () => {
+    await expect(direct().signatures("Nobody Here")).rejects.toMatchObject({ code: "ARTIST_NOT_FOUND" });
+    await expect(direct().search("dua")).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+
+  test("format filter applies client-side", async () => {
+    await expect(direct().signatures("Dua Lipa", { format: "png" })).rejects.toMatchObject({ code: "SIGNATURE_NOT_FOUND" });
+  });
+});
