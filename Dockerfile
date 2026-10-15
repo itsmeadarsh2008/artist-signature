@@ -17,6 +17,7 @@ COPY packages/parser/package.json packages/parser/
 COPY packages/resolver/package.json packages/resolver/
 COPY packages/database/package.json packages/database/
 COPY packages/client/package.json packages/client/
+COPY packages/direct/package.json packages/direct/
 RUN bun install --frozen-lockfile
 
 COPY tsconfig.json ./
